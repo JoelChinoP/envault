@@ -60,8 +60,8 @@ export class ProfileItem extends vscode.TreeItem {
 
     if (isCurrentWorkspace) {
       this.command = {
-        command: 'envault.viewProfileReadOnly',
-        title: 'Ver solo lectura',
+        command: 'envault.applyProfile',
+        title: 'Aplicar perfil',
         arguments: [this],
       };
     }
