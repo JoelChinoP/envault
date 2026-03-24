@@ -14,6 +14,7 @@ export class WorkspaceItem extends vscode.TreeItem {
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed,
     );
+    this.id = `workspace:${meta.id}`;
     this.workspaceId = meta.id;
     this.contextValue = 'workspace';
     this.description = meta.path;
@@ -32,6 +33,7 @@ export class ProfileItem extends vscode.TreeItem {
     // Keep active state subtle: no bold label, use icon + description only
     super(profile.name, vscode.TreeItemCollapsibleState.None);
 
+    this.id = `profile:${workspaceId}:${profile.name}`;
     this.workspaceId = workspaceId;
     this.profileName = profile.name;
     this.contextValue = 'profile';
@@ -86,9 +88,21 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem>
     return element;
   }
 
-  toggleOtherWorkspaces(): boolean {
-    this.showOtherWorkspaces = !this.showOtherWorkspaces;
+  isShowingOtherWorkspaces(): boolean {
+    return this.showOtherWorkspaces;
+  }
+
+  setShowOtherWorkspaces(showingAll: boolean): boolean {
+    if (this.showOtherWorkspaces === showingAll) {
+      return false;
+    }
+    this.showOtherWorkspaces = showingAll;
     this.refresh();
+    return true;
+  }
+
+  toggleOtherWorkspaces(): boolean {
+    this.setShowOtherWorkspaces(!this.showOtherWorkspaces);
     return this.showOtherWorkspaces;
   }
 

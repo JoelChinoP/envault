@@ -61,12 +61,12 @@
       {
         "command": "envault.showExpandedWorkspaces",
         "title": "Cambiar a vista ampliada",
-        "icon": "$(eye-closed)"
+        "icon": "$(eye)"
       },
       {
         "command": "envault.showFocusedWorkspace",
         "title": "Cambiar a vista enfocada",
-        "icon": "$(eye)"
+        "icon": "$(eye-closed)"
       },
       {
         "command": "envault.toggleOtherWorkspaces",

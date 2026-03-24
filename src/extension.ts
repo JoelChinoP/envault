@@ -21,35 +21,46 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(id, fn);
 
   const updateWorkspaceViewContext = async (
-    showingAll: boolean,
+    showingAll?: boolean,
   ): Promise<void> => {
+    const resolved = showingAll ?? treeProvider.isShowingOtherWorkspaces();
     await vscode.commands.executeCommand(
       'setContext',
       'envault.showOtherWorkspaces',
-      showingAll,
+      resolved,
     );
   };
 
-  const toggleWorkspaceView = async (): Promise<void> => {
-    const showingAll = treeProvider.toggleOtherWorkspaces();
+  const setWorkspaceViewMode = async (showingAll: boolean): Promise<void> => {
+    const changed = treeProvider.setShowOtherWorkspaces(showingAll);
     await updateWorkspaceViewContext(showingAll);
+    if (!changed) {
+      return;
+    }
     vscode.window.showInformationMessage(
       showingAll
-        ? 'Vista ampliada: todos los workspaces.'
-        : 'Vista enfocada: solo workspace actual.',
+        ? 'Vista ampliada activada: ahora ves todos los workspaces.'
+        : 'Vista enfocada activada: mostrando solo el workspace actual.',
     );
   };
 
-  void updateWorkspaceViewContext(false);
+  void updateWorkspaceViewContext();
 
   context.subscriptions.push(
     treeView,
 
     cmd('envault.refresh', () => treeProvider.refresh()),
 
-    cmd('envault.toggleOtherWorkspaces', toggleWorkspaceView),
-    cmd('envault.showExpandedWorkspaces', toggleWorkspaceView),
-    cmd('envault.showFocusedWorkspace', toggleWorkspaceView),
+    cmd('envault.toggleOtherWorkspaces', async () => {
+      const next = !treeProvider.isShowingOtherWorkspaces();
+      await setWorkspaceViewMode(next);
+    }),
+    cmd('envault.showExpandedWorkspaces', async () => {
+      await setWorkspaceViewMode(true);
+    }),
+    cmd('envault.showFocusedWorkspace', async () => {
+      await setWorkspaceViewMode(false);
+    }),
 
     cmd('envault.addProfile', (item?: WorkspaceItem) => {
       const wsId = item?.workspaceId ?? storage.getCurrentWorkspaceId();
@@ -163,6 +174,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       treeProvider.refresh();
       statusBar.update();
+      void updateWorkspaceViewContext();
     }),
   );
 
