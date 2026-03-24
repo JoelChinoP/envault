@@ -1,0 +1,59 @@
+{
+  "name": "env-manager",
+  "displayName": "ENV Manager",
+  "description": "Gestión de perfiles .env por empresa/rama sin tocar el repositorio",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "env-manager",
+          "title": "ENV Manager",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "env-manager": [
+        {
+          "id": "envManagerTree",
+          "name": "Perfiles"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "envManager.addProfile",    "title": "Nuevo Perfil",       "icon": "$(add)" },
+      { "command": "envManager.editProfile",   "title": "Editar Perfil",      "icon": "$(edit)" },
+      { "command": "envManager.deleteProfile", "title": "Eliminar Perfil",    "icon": "$(trash)" },
+      { "command": "envManager.applyProfile",  "title": "Aplicar Perfil",     "icon": "$(check)" },
+      { "command": "envManager.importFromEnv", "title": "Importar .env actual" },
+      { "command": "envManager.refresh",       "title": "Refrescar",          "icon": "$(refresh)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "envManager.addProfile", "when": "view == envManagerTree", "group": "navigation" },
+        { "command": "envManager.refresh",    "when": "view == envManagerTree", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "envManager.applyProfile",  "when": "viewItem == profile",   "group": "inline@1" },
+        { "command": "envManager.editProfile",   "when": "viewItem == profile",   "group": "inline@2" },
+        { "command": "envManager.deleteProfile", "when": "viewItem == profile",   "group": "inline@3" },
+        { "command": "envManager.importFromEnv", "when": "viewItem == workspace", "group": "context" }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
