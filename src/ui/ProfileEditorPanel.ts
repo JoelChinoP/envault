@@ -1,7 +1,19 @@
 import * as vscode from 'vscode';
 import { StorageService } from '../storage/StorageService';
-import { EnvWriter }      from '../services/EnvWriter';
-import { EnvProfile }     from '../types';
+import { EnvWriter } from '../services/EnvWriter';
+import { EnvProfile } from '../types';
+
+type SaveMessage = {
+  command: 'save';
+  profile: {
+    name: string;
+    variables: Record<string, string>;
+  };
+};
+
+type CancelMessage = { command: 'cancel' };
+type PickFileMessage = { command: 'pickFile' };
+type IncomingMessage = SaveMessage | CancelMessage | PickFileMessage;
 
 export class ProfileEditorPanel {
   private static readonly openPanels = new Map<string, ProfileEditorPanel>();
@@ -12,7 +24,7 @@ export class ProfileEditorPanel {
     private readonly storage: StorageService,
     private readonly workspaceId: string,
     private readonly profileName: string | null,
-    private readonly onSaved: () => void
+    private readonly onSaved: () => void,
   ) {
     const title = profileName ? `Editar: ${profileName}` : 'Nuevo Perfil';
 
@@ -20,14 +32,32 @@ export class ProfileEditorPanel {
       'envaultEditor',
       title,
       vscode.ViewColumn.One,
-      { enableScripts: true, retainContextWhenHidden: true }
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [],
+      },
     );
 
-    this.panel.webview.onDidReceiveMessage(async (msg) => {
+    this.panel.webview.onDidReceiveMessage(async (rawMsg: unknown) => {
+      const msg = this.parseIncomingMessage(rawMsg);
+      if (!msg) {
+        vscode.window.showWarningMessage(
+          'Mensaje invalido del editor de perfiles',
+        );
+        return;
+      }
+
       switch (msg.command) {
-        case 'save':     await this.handleSave(msg.profile); break;
-        case 'cancel':   this.panel.dispose();               break;
-        case 'pickFile': await this.handlePickFile();        break;
+        case 'save':
+          await this.handleSave(msg.profile);
+          break;
+        case 'cancel':
+          this.panel.dispose();
+          break;
+        case 'pickFile':
+          await this.handlePickFile();
+          break;
       }
     });
 
@@ -43,7 +73,7 @@ export class ProfileEditorPanel {
     storage: StorageService,
     workspaceId: string,
     profileName: string | null,
-    onSaved: () => void
+    onSaved: () => void,
   ): void {
     const key = workspaceId + ':' + (profileName ?? '__new__');
     if (ProfileEditorPanel.openPanels.has(key)) {
@@ -52,7 +82,13 @@ export class ProfileEditorPanel {
     }
     ProfileEditorPanel.openPanels.set(
       key,
-      new ProfileEditorPanel(context, storage, workspaceId, profileName, onSaved)
+      new ProfileEditorPanel(
+        context,
+        storage,
+        workspaceId,
+        profileName,
+        onSaved,
+      ),
     );
   }
 
@@ -63,24 +99,40 @@ export class ProfileEditorPanel {
   private async render(): Promise<void> {
     let profile: EnvProfile | null = null;
     if (this.profileName) {
-      profile = await this.storage.getProfile(this.workspaceId, this.profileName);
+      profile = await this.storage.getProfile(
+        this.workspaceId,
+        this.profileName,
+      );
     }
-    this.panel.webview.html = this.buildHtml(profile);
+    this.panel.webview.html = this.buildHtml(this.panel.webview, profile);
   }
 
-  private async handleSave(data: { name: string; variables: Record<string, string> }): Promise<void> {
-    const name = data.name.trim().toUpperCase().replace(/\s+/g, '_');
-    if (!name) {
-      vscode.window.showErrorMessage('El nombre del perfil no puede estar vacío');
+  private async handleSave(data: {
+    name: string;
+    variables: Record<string, string>;
+  }): Promise<void> {
+    const name = StorageService.normalizeProfileName(data.name);
+    const nameError = StorageService.profileNameError(name);
+    if (nameError) {
+      vscode.window.showErrorMessage(nameError);
       return;
     }
+
+    let safeVariables: Record<string, string>;
+    try {
+      safeVariables = this.sanitizeVariables(data.variables);
+    } catch (err) {
+      vscode.window.showErrorMessage((err as Error).message);
+      return;
+    }
+
     const existing = this.profileName
       ? await this.storage.getProfile(this.workspaceId, this.profileName)
       : null;
 
     await this.storage.saveProfile(this.workspaceId, {
       name,
-      variables: data.variables,
+      variables: safeVariables,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -97,28 +149,49 @@ export class ProfileEditorPanel {
       filters: { 'Env files': ['env', 'txt', '*'] },
       title: 'Selecciona un archivo .env para importar',
     });
-    if (!uris || uris.length === 0) { return; }
+    if (!uris || uris.length === 0) {
+      return;
+    }
     try {
-      const raw  = await vscode.workspace.fs.readFile(uris[0]);
+      const raw = await vscode.workspace.fs.readFile(uris[0]);
       const vars = EnvWriter.parse(Buffer.from(raw).toString('utf8'));
-      this.panel.webview.postMessage({ command: 'fileImported', variables: vars });
+      this.panel.webview.postMessage({
+        command: 'fileImported',
+        variables: vars,
+      });
     } catch (err) {
-      vscode.window.showErrorMessage(`No se pudo leer el archivo: ${(err as Error).message}`);
+      vscode.window.showErrorMessage(
+        `No se pudo leer el archivo: ${(err as Error).message}`,
+      );
     }
   }
 
   // ─── HTML ─────────────────────────────────────────────────────────────────
 
-  private buildHtml(profile: EnvProfile | null): string {
-    const name     = profile?.name ?? '';
-    const varsJson = JSON.stringify(profile?.variables ?? {});
-    const isNew    = !profile;
+  private buildHtml(
+    webview: vscode.Webview,
+    profile: EnvProfile | null,
+  ): string {
+    const nonce = this.createNonce();
+    const csp = [
+      "default-src 'none'",
+      `img-src ${webview.cspSource} https: data:`,
+      `style-src ${webview.cspSource} 'unsafe-inline'`,
+      `script-src 'nonce-${nonce}'`,
+    ].join('; ');
+    const name = profile?.name ?? '';
+    const varsB64 = Buffer.from(
+      JSON.stringify(profile?.variables ?? {}),
+      'utf8',
+    ).toString('base64');
+    const isNew = !profile;
 
-    return /* html */`<!DOCTYPE html>
+    return /* html */ `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>Envault Editor</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -321,7 +394,7 @@ export class ProfileEditorPanel {
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 </style>
 </head>
-<body>
+<body data-initial-vars="${varsB64}">
 
 <div class="header">
   <h2>${isNew ? '➕ Nuevo Perfil' : '✏️ Editar Perfil'}</h2>
@@ -332,7 +405,7 @@ export class ProfileEditorPanel {
   <label>Nombre del Perfil</label>
   <input id="profileName" type="text"
     value="${this.escHtml(name)}"
-    placeholder="Ej: MINCOR, EMPRESA_B, PRODUCCION...">
+    placeholder="Ej: LOCAL, EMPRESA_A, PRODUCCION...">
 </div>
 
 <div class="divider"></div>
@@ -340,11 +413,11 @@ export class ProfileEditorPanel {
 <div class="toolbar">
   <div class="toolbar-left">
     <label style="margin:0">Variables</label>
-    <button class="btn-import" onclick="pickFile()">📂 Importar archivo</button>
+    <button id="btnImportFile" class="btn-import">📂 Importar archivo</button>
   </div>
   <div class="toggle">
-    <button id="btnRaw"    class="active" onclick="setMode('raw')">✎ Archivo</button>
-    <button id="btnVisual"               onclick="setMode('visual')">⊞ Visual</button>
+    <button id="btnRaw" class="active">✎ Archivo</button>
+    <button id="btnVisual">⊞ Visual</button>
   </div>
 </div>
 
@@ -364,26 +437,47 @@ export class ProfileEditorPanel {
     <span>Clave</span><span>Valor</span><span></span>
   </div>
   <div id="varList"></div>
-  <button class="btn-add" onclick="addRow()">＋ Agregar variable</button>
+  <button id="btnAddVar" class="btn-add">＋ Agregar variable</button>
 </div>
 
 <div class="actions">
-  <button class="secondary" onclick="cancel()">Cancelar</button>
-  <button class="primary"   onclick="save()">Guardar perfil</button>
+  <button id="btnCancel" class="secondary">Cancelar</button>
+  <button id="btnSave" class="primary">Guardar perfil</button>
 </div>
 
-<script>
+<script nonce="${nonce}">
   const vscode      = acquireVsCodeApi();
-  const initialVars = ${varsJson};
+  const initialVars = (() => {
+    try {
+      const b64 = document.body.dataset.initialVars || '';
+      if (!b64) { return {}; }
+      const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+      const decoded = new TextDecoder().decode(bytes);
+      const parsed = JSON.parse(decoded);
+      return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch {
+      return {};
+    }
+  })();
   let   mode        = 'raw';
 
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
+    wireEvents();
     // Load into raw textarea as initial default
     const rawText = toRaw(initialVars);
     document.getElementById('rawEditor').value = rawText;
     syncHighlight(rawText);
     updateCounter();
+  }
+
+  function wireEvents() {
+    document.getElementById('btnImportFile').addEventListener('click', pickFile);
+    document.getElementById('btnRaw').addEventListener('click', () => setMode('raw'));
+    document.getElementById('btnVisual').addEventListener('click', () => setMode('visual'));
+    document.getElementById('btnAddVar').addEventListener('click', addRow);
+    document.getElementById('btnCancel').addEventListener('click', cancel);
+    document.getElementById('btnSave').addEventListener('click', save);
   }
 
   // ── Highlight ─────────────────────────────────────────────────────────────
@@ -484,13 +578,33 @@ export class ProfileEditorPanel {
   function addRowWith(key, value) {
     const list = document.getElementById('varList');
     const row  = document.createElement('div');
+    const keyInput = document.createElement('input');
+    const valueInput = document.createElement('input');
+    const removeBtn = document.createElement('button');
+
     row.className = 'var-row';
-    row.innerHTML =
-      '<input type="text" class="var-key"   value="' + esc(key)   + '" placeholder="DB_HOST">' +
-      '<input type="text" class="var-value" value="' + esc(value) + '" placeholder="valor">' +
-      '<button class="btn-icon danger" onclick="removeRow(this)" title="Eliminar">×</button>';
+
+    keyInput.type = 'text';
+    keyInput.className = 'var-key';
+    keyInput.placeholder = 'DB_HOST';
+    keyInput.value = String(key ?? '');
+
+    valueInput.type = 'text';
+    valueInput.className = 'var-value';
+    valueInput.placeholder = 'valor';
+    valueInput.value = String(value ?? '');
+
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-icon danger';
+    removeBtn.title = 'Eliminar';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => removeRow(removeBtn));
+
+    row.appendChild(keyInput);
+    row.appendChild(valueInput);
+    row.appendChild(removeBtn);
     list.appendChild(row);
-    row.querySelector('.var-key').addEventListener('input', updateCounter);
+    keyInput.addEventListener('input', updateCounter);
   }
 
   function clearRows() { document.getElementById('varList').innerHTML = ''; }
@@ -557,7 +671,96 @@ export class ProfileEditorPanel {
 </html>`;
   }
 
+  private parseIncomingMessage(rawMsg: unknown): IncomingMessage | null {
+    if (!this.isRecord(rawMsg) || typeof rawMsg.command !== 'string') {
+      return null;
+    }
+
+    if (rawMsg.command === 'cancel') {
+      return { command: 'cancel' };
+    }
+    if (rawMsg.command === 'pickFile') {
+      return { command: 'pickFile' };
+    }
+    if (rawMsg.command !== 'save' || !this.isRecord(rawMsg.profile)) {
+      return null;
+    }
+
+    const { name, variables } = rawMsg.profile;
+    if (typeof name !== 'string' || !this.isRecord(variables)) {
+      return null;
+    }
+
+    const normalizedVariables: Record<string, string> = {};
+    for (const [k, v] of Object.entries(variables)) {
+      if (typeof v !== 'string') {
+        return null;
+      }
+      normalizedVariables[k] = v;
+    }
+
+    return {
+      command: 'save',
+      profile: {
+        name,
+        variables: normalizedVariables,
+      },
+    };
+  }
+
+  private sanitizeVariables(
+    input: Record<string, string>,
+  ): Record<string, string> {
+    const entries = Object.entries(input);
+    if (entries.length > 1000) {
+      throw new Error('Demasiadas variables para un perfil (max 1000)');
+    }
+
+    const sanitized: Record<string, string> = {};
+    for (const [rawKey, rawValue] of entries) {
+      const key = rawKey.trim();
+      if (!key) {
+        continue;
+      }
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        throw new Error(`Clave invalida: ${rawKey}`);
+      }
+      if (key.length > 128) {
+        throw new Error(`Clave demasiado larga: ${rawKey}`);
+      }
+
+      const value = String(rawValue);
+      if (value.length > 8192) {
+        throw new Error(`Valor demasiado largo para ${key}`);
+      }
+      if (/[\r\n]/.test(value)) {
+        throw new Error(`El valor de ${key} no puede contener saltos de linea`);
+      }
+      sanitized[key] = value;
+    }
+
+    return sanitized;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private createNonce(): string {
+    const alphabet =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let out = '';
+    for (let i = 0; i < 32; i += 1) {
+      out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    return out;
+  }
+
   private escHtml(s: string): string {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }

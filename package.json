@@ -3,9 +3,15 @@
   "displayName": "Envault",
   "description": "Gestión de perfiles .env por empresa/rama sin tocar el repositorio",
   "version": "0.1.0",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -21,28 +27,102 @@
       "envault": [
         {
           "id": "envaultTree",
-          "name": "Perfiles"
+          "name": "Perfiles",
+          "icon": "resources/icon.svg"
         }
       ]
     },
     "commands": [
-      { "command": "envault.addProfile",    "title": "Nuevo Perfil",    "icon": "$(add)" },
-      { "command": "envault.editProfile",   "title": "Editar Perfil",   "icon": "$(edit)" },
-      { "command": "envault.deleteProfile", "title": "Eliminar Perfil", "icon": "$(trash)" },
-      { "command": "envault.applyProfile",  "title": "Aplicar Perfil",  "icon": "$(check)" },
-      { "command": "envault.importFromEnv", "title": "Importar .env actual" },
-      { "command": "envault.refresh",       "title": "Refrescar",       "icon": "$(refresh)" }
+      {
+        "command": "envault.addProfile",
+        "title": "Nuevo Perfil",
+        "icon": "$(add)"
+      },
+      {
+        "command": "envault.editProfile",
+        "title": "Editar Perfil",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "envault.deleteProfile",
+        "title": "Eliminar Perfil",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "envault.applyProfile",
+        "title": "Aplicar Perfil",
+        "icon": "$(check)"
+      },
+      {
+        "command": "envault.importFromEnv",
+        "title": "Importar .env actual",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "envault.showExpandedWorkspaces",
+        "title": "Cambiar a vista ampliada",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "envault.showFocusedWorkspace",
+        "title": "Cambiar a vista enfocada",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "envault.toggleOtherWorkspaces",
+        "title": "Alternar vista de workspaces",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "envault.refresh",
+        "title": "Refrescar",
+        "icon": "$(refresh)"
+      }
     ],
     "menus": {
       "view/title": [
-        { "command": "envault.addProfile", "when": "view == envaultTree", "group": "navigation" },
-        { "command": "envault.refresh",    "when": "view == envaultTree", "group": "navigation" }
+        {
+          "command": "envault.addProfile",
+          "when": "view == envaultTree",
+          "group": "navigation"
+        },
+        {
+          "command": "envault.showExpandedWorkspaces",
+          "when": "view == envaultTree && !envault.showOtherWorkspaces",
+          "group": "navigation"
+        },
+        {
+          "command": "envault.showFocusedWorkspace",
+          "when": "view == envaultTree && envault.showOtherWorkspaces",
+          "group": "navigation"
+        },
+        {
+          "command": "envault.refresh",
+          "when": "view == envaultTree",
+          "group": "navigation"
+        }
       ],
       "view/item/context": [
-        { "command": "envault.applyProfile",  "when": "viewItem == profile",   "group": "inline@1" },
-        { "command": "envault.editProfile",   "when": "viewItem == profile",   "group": "inline@2" },
-        { "command": "envault.deleteProfile", "when": "viewItem == profile",   "group": "inline@3" },
-        { "command": "envault.importFromEnv", "when": "viewItem == workspace", "group": "context" }
+        {
+          "command": "envault.applyProfile",
+          "when": "viewItem == profile",
+          "group": "inline@1"
+        },
+        {
+          "command": "envault.editProfile",
+          "when": "viewItem == profile",
+          "group": "inline@2"
+        },
+        {
+          "command": "envault.deleteProfile",
+          "when": "viewItem == profile",
+          "group": "inline@3"
+        },
+        {
+          "command": "envault.importFromEnv",
+          "when": "viewItem == workspace",
+          "group": "context"
+        }
       ]
     }
   },

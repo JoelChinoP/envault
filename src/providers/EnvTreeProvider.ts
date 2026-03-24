@@ -7,14 +7,19 @@ import { WorkspaceMeta, EnvProfile } from '../types';
 export class WorkspaceItem extends vscode.TreeItem {
   public readonly workspaceId: string;
 
-  constructor(meta: WorkspaceMeta) {
-    super(meta.name, vscode.TreeItemCollapsibleState.Expanded);
+  constructor(meta: WorkspaceMeta, isCurrentWorkspace: boolean) {
+    super(
+      meta.name,
+      isCurrentWorkspace
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed,
+    );
     this.workspaceId = meta.id;
     this.contextValue = 'workspace';
     this.description = meta.path;
     this.iconPath = new vscode.ThemeIcon('folder-library');
     this.tooltip = new vscode.MarkdownString(
-      `**${meta.name}**\n\n\`${meta.path}\``
+      `**${meta.name}**\n\n\`${meta.path}\``,
     );
   }
 }
@@ -69,6 +74,7 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem>
     vscode.TreeItem | undefined | null | void
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  private showOtherWorkspaces = false;
 
   constructor(private readonly storage: StorageService) {}
 
@@ -80,6 +86,12 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem>
     return element;
   }
 
+  toggleOtherWorkspaces(): boolean {
+    this.showOtherWorkspaces = !this.showOtherWorkspaces;
+    this.refresh();
+    return this.showOtherWorkspaces;
+  }
+
   async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
     if (!element) {
       await this.ensureCurrentWorkspace();
@@ -87,7 +99,30 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem>
       if (workspaces.length === 0) {
         return [new EmptyItem('Abre un workspace para comenzar')];
       }
-      return workspaces.map((ws) => new WorkspaceItem(ws));
+
+      const currentId = this.storage.getCurrentWorkspaceId();
+
+      if (!this.showOtherWorkspaces) {
+        if (!currentId) {
+          return [new EmptyItem('Abre un workspace para comenzar')];
+        }
+        const current = workspaces.find((ws) => ws.id === currentId);
+        if (!current) {
+          return [new EmptyItem('Workspace actual no encontrado')];
+        }
+        return [new WorkspaceItem(current, true)];
+      }
+
+      const ordered = [...workspaces].sort((a, b) => {
+        if (a.id === currentId) {
+          return -1;
+        }
+        if (b.id === currentId) {
+          return 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+      return ordered.map((ws) => new WorkspaceItem(ws, ws.id === currentId));
     }
 
     if (element instanceof WorkspaceItem) {

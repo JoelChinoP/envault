@@ -40,7 +40,7 @@ Todo se guarda en `globalStorageUri` de VS Code, completamente fuera de los repo
     meta.json
     active.json
     profiles/
-      MINCOR.json
+      LOCAL.json
       EMPRESA_B.json
 ```
 
