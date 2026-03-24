@@ -1,23 +1,21 @@
 import * as vscode from 'vscode';
-import { StorageService }   from './storage/StorageService';
-import { EnvTreeProvider }  from './providers/EnvTreeProvider';
-import { StatusBarManager } from './ui/StatusBarManager';
+import { StorageService }    from './storage/StorageService';
+import { EnvTreeProvider }   from './providers/EnvTreeProvider';
+import { StatusBarManager }  from './ui/StatusBarManager';
 import { ProfileEditorPanel } from './ui/ProfileEditorPanel';
-import { EnvWriter }        from './services/EnvWriter';
+import { EnvWriter }          from './services/EnvWriter';
 import { WorkspaceItem, ProfileItem } from './providers/EnvTreeProvider';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const storage    = new StorageService(context);
-  const envWriter  = new EnvWriter();
-  const statusBar  = new StatusBarManager(context, storage);
+  const storage      = new StorageService(context);
+  const envWriter    = new EnvWriter();
+  const statusBar    = new StatusBarManager(context, storage);
   const treeProvider = new EnvTreeProvider(storage);
 
-  const treeView = vscode.window.createTreeView('envManagerTree', {
+  const treeView = vscode.window.createTreeView('envaultTree', {
     treeDataProvider: treeProvider,
     showCollapseAll: false,
   });
-
-  // ── Commands ───────────────────────────────────────────────────────────────
 
   const cmd = (id: string, fn: (...args: any[]) => any) =>
     vscode.commands.registerCommand(id, fn);
@@ -25,52 +23,42 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     treeView,
 
-    // Refresh tree
-    cmd('envManager.refresh', () => treeProvider.refresh()),
+    cmd('envault.refresh', () => treeProvider.refresh()),
 
-    // New profile — can be called from the toolbar (+) or from a workspace item context menu
-    cmd('envManager.addProfile', (item?: WorkspaceItem) => {
+    cmd('envault.addProfile', (item?: WorkspaceItem) => {
       const wsId = item?.workspaceId ?? storage.getCurrentWorkspaceId();
-      if (!wsId) {
-        vscode.window.showWarningMessage('Abre un workspace primero');
-        return;
-      }
+      if (!wsId) { vscode.window.showWarningMessage('Abre un workspace primero'); return; }
       ProfileEditorPanel.create(context, storage, wsId, null, () => {
         treeProvider.refresh();
         statusBar.update();
       });
     }),
 
-    // Edit existing profile
-    cmd('envManager.editProfile', (item: ProfileItem) => {
+    cmd('envault.editProfile', (item: ProfileItem) => {
       ProfileEditorPanel.create(context, storage, item.workspaceId, item.profileName, () => {
         treeProvider.refresh();
         statusBar.update();
       });
     }),
 
-    // Delete profile (with confirmation)
-    cmd('envManager.deleteProfile', async (item: ProfileItem) => {
+    cmd('envault.deleteProfile', async (item: ProfileItem) => {
       const answer = await vscode.window.showWarningMessage(
         `¿Eliminar el perfil "${item.profileName}"?`,
         { modal: true },
         'Eliminar'
       );
       if (answer !== 'Eliminar') { return; }
-
       await storage.deleteProfile(item.workspaceId, item.profileName);
       treeProvider.refresh();
       await statusBar.update();
     }),
 
-    // Apply profile → write .env
-    cmd('envManager.applyProfile', async (item: ProfileItem) => {
+    cmd('envault.applyProfile', async (item: ProfileItem) => {
       const profile = await storage.getProfile(item.workspaceId, item.profileName);
       if (!profile) {
         vscode.window.showErrorMessage(`Perfil "${item.profileName}" no encontrado`);
         return;
       }
-
       try {
         await envWriter.write(profile.variables);
         await storage.setActiveProfile(item.workspaceId, item.profileName);
@@ -82,13 +70,9 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
 
-    // Import current .env as a new profile
-    cmd('envManager.importFromEnv', async (item?: WorkspaceItem) => {
+    cmd('envault.importFromEnv', async (item?: WorkspaceItem) => {
       const wsId = item?.workspaceId ?? storage.getCurrentWorkspaceId();
-      if (!wsId) {
-        vscode.window.showWarningMessage('Abre un workspace primero');
-        return;
-      }
+      if (!wsId) { vscode.window.showWarningMessage('Abre un workspace primero'); return; }
 
       const content = await envWriter.read();
       if (!content) {
@@ -99,13 +83,12 @@ export function activate(context: vscode.ExtensionContext): void {
       const name = await vscode.window.showInputBox({
         title: 'Importar .env como perfil',
         prompt: 'Nombre para el nuevo perfil',
-        placeHolder: 'Ej: MINCOR, EMPRESA_B, PRODUCCION...',
+        placeHolder: 'Ej: MINCOR, EMPRESA_B...',
         validateInput: (v) => v.trim() ? null : 'El nombre no puede estar vacío',
       });
       if (!name) { return; }
 
-      const variables  = EnvWriter.parse(content);
-      const varCount   = Object.keys(variables).length;
+      const variables   = EnvWriter.parse(content);
       const profileName = name.trim().toUpperCase().replace(/\s+/g, '_');
 
       await storage.saveProfile(wsId, {
@@ -117,21 +100,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
       treeProvider.refresh();
       vscode.window.showInformationMessage(
-        `✅ Perfil "${profileName}" importado con ${varCount} variables`
+        `✅ Perfil "${profileName}" importado con ${Object.keys(variables).length} variables`
       );
-    })
-  );
+    }),
 
-  // ── Refresh status bar when workspace changes ──────────────────────────────
-  context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       treeProvider.refresh();
       statusBar.update();
     })
   );
 
-  // Initial status bar update
   statusBar.update();
 }
 
-export function deactivate(): void { /* nothing to clean up */ }
+export function deactivate(): void {}
