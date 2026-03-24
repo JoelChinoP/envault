@@ -41,7 +41,9 @@ export class ProfileItem extends vscode.TreeItem {
     this.id = `profile:${workspaceId}:${profile.name}`;
     this.workspaceId = workspaceId;
     this.profileName = profile.name;
-    this.contextValue = isCurrentWorkspace ? 'profileCurrent' : 'profileExternal';
+    this.contextValue = isCurrentWorkspace
+      ? 'profileCurrent'
+      : 'profileExternal';
 
     const varCount = Object.keys(profile.variables).length;
     this.description = isActive ? `${varCount} vars  ✦` : `${varCount} vars`;
@@ -56,21 +58,16 @@ export class ProfileItem extends vscode.TreeItem {
         `${varCount} variables · actualizado ${new Date(profile.updatedAt).toLocaleDateString()}`,
     );
 
-    if (isCurrentWorkspace && !isActive) {
-      this.command = {
-        command: 'envault.applyProfile',
-        title: 'Aplicar',
-        arguments: [this],
-      };
-    }
-
-    if (!isCurrentWorkspace) {
+    if (isCurrentWorkspace) {
       this.command = {
         command: 'envault.viewProfileReadOnly',
         title: 'Ver solo lectura',
         arguments: [this],
       };
     }
+
+    // External profiles should not open on row click.
+    // Read-only access is available through the inline eye icon.
   }
 }
 

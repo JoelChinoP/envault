@@ -86,7 +86,7 @@ export class ProfileEditorPanel {
     profileName: string | null,
     onSaved: () => void,
   ): void {
-    const key = workspaceId + ':' + (profileName ?? '__new__');
+    const key = `${workspaceId}:${profileName ?? '__new__'}:__editable__`;
     if (ProfileEditorPanel.openPanels.has(key)) {
       ProfileEditorPanel.openPanels.get(key)!.panel.reveal();
       return;
@@ -246,6 +246,8 @@ export class ProfileEditorPanel {
     padding: 22px 28px 28px;
     max-width: 800px;
     
+    width: 100%;
+    margin: 0 auto;
   }
 
   /* ── Header ── */
