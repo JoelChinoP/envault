@@ -54,6 +54,11 @@
         "icon": "$(check)"
       },
       {
+        "command": "envault.viewProfileReadOnly",
+        "title": "Ver Perfil (Solo lectura)",
+        "icon": "$(file-text)"
+      },
+      {
         "command": "envault.importFromEnv",
         "title": "Importar .env actual",
         "icon": "$(file-add)"
@@ -105,17 +110,22 @@
       "view/item/context": [
         {
           "command": "envault.applyProfile",
-          "when": "viewItem == profile",
+          "when": "viewItem == profileCurrent",
+          "group": "inline@1"
+        },
+        {
+          "command": "envault.viewProfileReadOnly",
+          "when": "viewItem == profileExternal",
           "group": "inline@1"
         },
         {
           "command": "envault.editProfile",
-          "when": "viewItem == profile",
+          "when": "viewItem == profileCurrent",
           "group": "inline@2"
         },
         {
           "command": "envault.deleteProfile",
-          "when": "viewItem == profile",
+          "when": "viewItem == profileCurrent",
           "group": "inline@3"
         },
         {

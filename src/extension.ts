@@ -20,6 +20,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const cmd = (id: string, fn: (...args: any[]) => any) =>
     vscode.commands.registerCommand(id, fn);
 
+  const viewModeKeyFor = (wsId: string): string =>
+    `envault.view.showOtherWorkspaces:${wsId}`;
+
   const updateWorkspaceViewContext = async (
     showingAll?: boolean,
   ): Promise<void> => {
@@ -33,6 +36,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const setWorkspaceViewMode = async (showingAll: boolean): Promise<void> => {
     const changed = treeProvider.setShowOtherWorkspaces(showingAll);
+    const wsId = storage.getCurrentWorkspaceId();
+    if (wsId) {
+      await context.workspaceState.update(viewModeKeyFor(wsId), showingAll);
+    }
     await updateWorkspaceViewContext(showingAll);
     if (!changed) {
       return;
@@ -44,7 +51,16 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   };
 
-  void updateWorkspaceViewContext();
+  const restoreWorkspaceViewMode = async (): Promise<void> => {
+    const wsId = storage.getCurrentWorkspaceId();
+    const showingAll = wsId
+      ? context.workspaceState.get<boolean>(viewModeKeyFor(wsId), false)
+      : false;
+    treeProvider.setShowOtherWorkspaces(showingAll);
+    await updateWorkspaceViewContext(showingAll);
+  };
+
+  void restoreWorkspaceViewMode();
 
   context.subscriptions.push(
     treeView,
@@ -87,6 +103,15 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }),
 
+    cmd('envault.viewProfileReadOnly', (item: ProfileItem) => {
+      ProfileEditorPanel.createReadOnly(
+        context,
+        storage,
+        item.workspaceId,
+        item.profileName,
+      );
+    }),
+
     cmd('envault.deleteProfile', async (item: ProfileItem) => {
       const answer = await vscode.window.showWarningMessage(
         `¿Eliminar el perfil "${item.profileName}"?`,
@@ -102,6 +127,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     cmd('envault.applyProfile', async (item: ProfileItem) => {
+      const currentWsId = storage.getCurrentWorkspaceId();
+      if (!currentWsId || item.workspaceId !== currentWsId) {
+        vscode.window.showWarningMessage(
+          'No puedes aplicar perfiles de otro workspace. Usa vista de solo lectura o cambia al workspace actual.',
+        );
+        return;
+      }
+
       const profile = await storage.getProfile(
         item.workspaceId,
         item.profileName,
@@ -172,9 +205,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void restoreWorkspaceViewMode();
       treeProvider.refresh();
       statusBar.update();
-      void updateWorkspaceViewContext();
     }),
   );
 

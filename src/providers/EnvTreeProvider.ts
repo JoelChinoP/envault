@@ -29,14 +29,19 @@ export class ProfileItem extends vscode.TreeItem {
   public readonly workspaceId: string;
   public readonly profileName: string;
 
-  constructor(profile: EnvProfile, workspaceId: string, isActive: boolean) {
+  constructor(
+    profile: EnvProfile,
+    workspaceId: string,
+    isActive: boolean,
+    isCurrentWorkspace: boolean,
+  ) {
     // Keep active state subtle: no bold label, use icon + description only
     super(profile.name, vscode.TreeItemCollapsibleState.None);
 
     this.id = `profile:${workspaceId}:${profile.name}`;
     this.workspaceId = workspaceId;
     this.profileName = profile.name;
-    this.contextValue = 'profile';
+    this.contextValue = isCurrentWorkspace ? 'profileCurrent' : 'profileExternal';
 
     const varCount = Object.keys(profile.variables).length;
     this.description = isActive ? `${varCount} vars  ✦` : `${varCount} vars`;
@@ -51,10 +56,18 @@ export class ProfileItem extends vscode.TreeItem {
         `${varCount} variables · actualizado ${new Date(profile.updatedAt).toLocaleDateString()}`,
     );
 
-    if (!isActive) {
+    if (isCurrentWorkspace && !isActive) {
       this.command = {
         command: 'envault.applyProfile',
         title: 'Aplicar',
+        arguments: [this],
+      };
+    }
+
+    if (!isCurrentWorkspace) {
+      this.command = {
+        command: 'envault.viewProfileReadOnly',
+        title: 'Ver solo lectura',
         arguments: [this],
       };
     }
@@ -140,16 +153,25 @@ export class EnvTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem>
     }
 
     if (element instanceof WorkspaceItem) {
+      const currentId = this.storage.getCurrentWorkspaceId();
+      const isCurrentWorkspace = element.workspaceId === currentId;
       const [profiles, activeProfile] = await Promise.all([
         this.storage.getProfiles(element.workspaceId),
-        this.storage.getActiveProfile(element.workspaceId),
+        isCurrentWorkspace
+          ? this.storage.getActiveProfile(element.workspaceId)
+          : Promise.resolve<string | null>(null),
       ]);
       if (profiles.length === 0) {
         return [new EmptyItem('Sin perfiles — usa [+] para agregar')];
       }
       return profiles.map(
         (p) =>
-          new ProfileItem(p, element.workspaceId, p.name === activeProfile),
+          new ProfileItem(
+            p,
+            element.workspaceId,
+            p.name === activeProfile,
+            isCurrentWorkspace,
+          ),
       );
     }
 

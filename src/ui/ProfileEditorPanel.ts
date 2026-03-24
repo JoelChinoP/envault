@@ -25,8 +25,13 @@ export class ProfileEditorPanel {
     private readonly workspaceId: string,
     private readonly profileName: string | null,
     private readonly onSaved: () => void,
+    private readonly readOnly: boolean,
   ) {
-    const title = profileName ? `Editar: ${profileName}` : 'Nuevo Perfil';
+    const title = readOnly
+      ? `Vista: ${profileName ?? 'Perfil'}`
+      : profileName
+        ? `Editar: ${profileName}`
+        : 'Nuevo Perfil';
 
     this.panel = vscode.window.createWebviewPanel(
       'envaultEditor',
@@ -50,12 +55,18 @@ export class ProfileEditorPanel {
 
       switch (msg.command) {
         case 'save':
+          if (this.readOnly) {
+            return;
+          }
           await this.handleSave(msg.profile);
           break;
         case 'cancel':
           this.panel.dispose();
           break;
         case 'pickFile':
+          if (this.readOnly) {
+            return;
+          }
           await this.handlePickFile();
           break;
       }
@@ -88,12 +99,38 @@ export class ProfileEditorPanel {
         workspaceId,
         profileName,
         onSaved,
+        false,
+      ),
+    );
+  }
+
+  static createReadOnly(
+    context: vscode.ExtensionContext,
+    storage: StorageService,
+    workspaceId: string,
+    profileName: string,
+  ): void {
+    const key = `${workspaceId}:${profileName}:__readonly__`;
+    if (ProfileEditorPanel.openPanels.has(key)) {
+      ProfileEditorPanel.openPanels.get(key)!.panel.reveal();
+      return;
+    }
+    ProfileEditorPanel.openPanels.set(
+      key,
+      new ProfileEditorPanel(
+        context,
+        storage,
+        workspaceId,
+        profileName,
+        () => {},
+        true,
       ),
     );
   }
 
   private panelKey(): string {
-    return this.workspaceId + ':' + (this.profileName ?? '__new__');
+    const mode = this.readOnly ? '__readonly__' : '__editable__';
+    return `${this.workspaceId}:${this.profileName ?? '__new__'}:${mode}`;
   }
 
   private async render(): Promise<void> {
@@ -104,7 +141,11 @@ export class ProfileEditorPanel {
         this.profileName,
       );
     }
-    this.panel.webview.html = this.buildHtml(this.panel.webview, profile);
+    this.panel.webview.html = this.buildHtml(
+      this.panel.webview,
+      profile,
+      this.readOnly,
+    );
   }
 
   private async handleSave(data: {
@@ -171,6 +212,7 @@ export class ProfileEditorPanel {
   private buildHtml(
     webview: vscode.Webview,
     profile: EnvProfile | null,
+    readOnly: boolean,
   ): string {
     const nonce = this.createNonce();
     const csp = [
@@ -203,6 +245,7 @@ export class ProfileEditorPanel {
     color: var(--vscode-editor-foreground);
     padding: 22px 28px 28px;
     max-width: 800px;
+    
   }
 
   /* ── Header ── */
@@ -282,7 +325,7 @@ export class ProfileEditorPanel {
 
   .raw-wrap {
     position: relative;
-    height: 75vh;
+    height: 70vh;
     border: 1px solid var(--vscode-input-border, rgba(128,128,128,0.35));
     border-radius: 3px;
     overflow: hidden;
@@ -394,10 +437,10 @@ export class ProfileEditorPanel {
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 </style>
 </head>
-<body data-initial-vars="${varsB64}">
+<body data-initial-vars="${varsB64}" data-readonly="${readOnly ? '1' : '0'}">
 
 <div class="header">
-  <h2>${isNew ? '➕ Nuevo Perfil' : '✏️ Editar Perfil'}</h2>
+  <h2>${readOnly ? '👁️ Vista de solo lectura' : isNew ? '➕ Nuevo Perfil' : '✏️ Editar Perfil'}</h2>
   <span class="badge" id="varCounter">0 vars</span>
 </div>
 
@@ -447,6 +490,7 @@ export class ProfileEditorPanel {
 
 <script nonce="${nonce}">
   const vscode      = acquireVsCodeApi();
+  const readOnly    = document.body.dataset.readonly === '1';
   const initialVars = (() => {
     try {
       const b64 = document.body.dataset.initialVars || '';
@@ -464,6 +508,7 @@ export class ProfileEditorPanel {
   // ── Init ──────────────────────────────────────────────────────────────────
   function init() {
     wireEvents();
+    applyReadOnlyMode();
     // Load into raw textarea as initial default
     const rawText = toRaw(initialVars);
     document.getElementById('rawEditor').value = rawText;
@@ -472,12 +517,31 @@ export class ProfileEditorPanel {
   }
 
   function wireEvents() {
-    document.getElementById('btnImportFile').addEventListener('click', pickFile);
+    if (!readOnly) {
+      document.getElementById('btnImportFile').addEventListener('click', pickFile);
+      document.getElementById('btnAddVar').addEventListener('click', addRow);
+      document.getElementById('btnSave').addEventListener('click', save);
+    }
     document.getElementById('btnRaw').addEventListener('click', () => setMode('raw'));
     document.getElementById('btnVisual').addEventListener('click', () => setMode('visual'));
-    document.getElementById('btnAddVar').addEventListener('click', addRow);
     document.getElementById('btnCancel').addEventListener('click', cancel);
-    document.getElementById('btnSave').addEventListener('click', save);
+  }
+
+  function applyReadOnlyMode() {
+    if (!readOnly) { return; }
+    const nameInput = document.getElementById('profileName');
+    const rawEditor = document.getElementById('rawEditor');
+    const importBtn = document.getElementById('btnImportFile');
+    const addBtn = document.getElementById('btnAddVar');
+    const saveBtn = document.getElementById('btnSave');
+    const cancelBtn = document.getElementById('btnCancel');
+
+    nameInput.setAttribute('readonly', 'true');
+    rawEditor.setAttribute('readonly', 'true');
+    importBtn.style.display = 'none';
+    addBtn.style.display = 'none';
+    saveBtn.style.display = 'none';
+    cancelBtn.textContent = 'Cerrar';
   }
 
   // ── Highlight ─────────────────────────────────────────────────────────────
@@ -569,6 +633,7 @@ export class ProfileEditorPanel {
 
   // ── Visual editor ─────────────────────────────────────────────────────────
   function addRow() {
+    if (readOnly) { return; }
     addRowWith('', '');
     updateCounter();
     const rows = document.querySelectorAll('.var-row');
@@ -599,6 +664,12 @@ export class ProfileEditorPanel {
     removeBtn.title = 'Eliminar';
     removeBtn.textContent = '×';
     removeBtn.addEventListener('click', () => removeRow(removeBtn));
+
+    if (readOnly) {
+      keyInput.setAttribute('readonly', 'true');
+      valueInput.setAttribute('readonly', 'true');
+      removeBtn.style.display = 'none';
+    }
 
     row.appendChild(keyInput);
     row.appendChild(valueInput);
@@ -650,6 +721,7 @@ export class ProfileEditorPanel {
 
   // ── Save / cancel ─────────────────────────────────────────────────────────
   function save() {
+    if (readOnly) { return; }
     const name      = document.getElementById('profileName').value.trim();
     const variables = mode === 'visual'
       ? collectVars()
